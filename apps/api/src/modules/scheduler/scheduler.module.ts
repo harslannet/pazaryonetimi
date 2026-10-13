@@ -10,6 +10,7 @@ import { MarketIntelligenceModule } from '../market-intelligence/market-intellig
 import { MarketplaceModule } from '../marketplace/marketplace.module';
 import { CompetitorAnalysisService } from '../marketplace/competitor-analysis.service';
 import { EncryptionModule } from '../../common/encryption.module';
+import { ScrapingModule } from '../scraping/scraping.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { EncryptionModule } from '../../common/encryption.module';
     EncryptionModule,
     MarketIntelligenceModule,
     MarketplaceModule,
+    ScrapingModule,
     BullModule.registerQueue(
       { name: 'reports' },
       { name: 'sync' },
