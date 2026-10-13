@@ -4,9 +4,10 @@ import { OrdersService } from './orders.service';
 import { DatabaseModule } from '../../database/database.module';
 import { EInvoiceModule } from '../e-invoice/e-invoice.module';
 import { RbacModule } from '../rbac/rbac.module';
+import { CacheModule } from '@nestjs/cache-manager';
 
 @Module({
-  imports: [DatabaseModule, EInvoiceModule, RbacModule],
+  imports: [DatabaseModule, EInvoiceModule, RbacModule, CacheModule.register()],
   controllers: [OrdersController],
   providers: [OrdersService],
   exports: [OrdersService],
