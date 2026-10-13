@@ -36,7 +36,7 @@ services:
       - ALLOW_SIMULATED_SHIPPING=${ALLOW_SIMULATED_SHIPPING:-false}
       - NODE_ENV=production
     ports:
-      - "3001:3001"
+      - "3001"
     depends_on:
       postgres:
         condition: service_healthy
