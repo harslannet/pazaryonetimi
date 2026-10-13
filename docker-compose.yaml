@@ -35,7 +35,7 @@ services:
       - ALLOW_SIMULATED_PAYMENTS=${ALLOW_SIMULATED_PAYMENTS:-false}
       - ALLOW_SIMULATED_SHIPPING=${ALLOW_SIMULATED_SHIPPING:-false}
       - NODE_ENV=production
-    ports:
+    expose:
       - "3001"
     depends_on:
       postgres:
@@ -71,8 +71,8 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-${GEMINI_API_KEY}}
       - GOOGLE_GEMINI_API_KEY=${GOOGLE_GEMINI_API_KEY:-${GEMINI_API_KEY}}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     depends_on:
       - api
       - redis
