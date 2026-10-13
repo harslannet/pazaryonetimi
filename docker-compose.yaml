@@ -5,8 +5,6 @@ services:
       POSTGRES_USER: pazaryonetimi
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pazaryonetimi_secret}
       POSTGRES_DB: pazaryonetimi
-    ports:
-      - "5432:5432"
     restart: always
     volumes:
       - postgres_data:/var/lib/postgresql/data
