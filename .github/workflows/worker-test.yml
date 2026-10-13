@@ -1,0 +1,108 @@
+
+name: Worker Startup Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/api/**"
+      - "packages/**"
+      - "docker-compose.yaml"
+      - ".github/workflows/worker-test.yml"
+
+jobs:
+  worker-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    env:
+      POSTGRES_PASSWORD: TestDatabasePassword2026
+      DATABASE_URL: postgresql://pazaryonetimi:TestDatabasePassword2026@postgres:5432/pazaryonetimi
+      REDIS_PASSWORD: TestRedisPassword2026
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      JWT_SECRET: TestJwtSecretForGitHubActionsOnly2026LongKey
+      NEXTAUTH_SECRET: TestNextAuthSecretForGitHubActions2026LongKey
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef"
+      NEXTAUTH_URL: http://localhost:3000
+      NODE_ENV: production
+      ENABLE_SCHEDULER: "false"
+      ALLOW_SIMULATED_PAYMENTS: "false"
+      ALLOW_SIMULATED_SHIPPING: "false"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Docker
+        run: |
+          docker version
+          docker compose version
+          docker compose config --quiet
+
+      - name: Build and start dependencies
+        run: |
+          docker compose up -d --build postgres redis api
+
+      - name: Wait for API health
+        shell: bash
+        run: |
+          for i in {1..45}; do
+            ID=$(docker compose ps -q api)
+            STATUS=$(docker inspect \
+              --format '{{.State.Health.Status}}' "$ID" 2>/dev/null || true)
+
+            echo "API health: $STATUS"
+
+            if [ "$STATUS" = "healthy" ]; then
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo "API did not become healthy"
+          exit 1
+
+      - name: Start worker
+        run: docker compose up -d --no-build worker
+
+      - name: Verify worker stability
+        shell: bash
+        run: |
+          sleep 30
+
+          ID=$(docker compose ps -q worker)
+
+          if [ -z "$ID" ]; then
+            echo "Worker container not found"
+            exit 1
+          fi
+
+          RUNNING=$(docker inspect \
+            --format '{{.State.Running}}' "$ID")
+
+          RESTARTS=$(docker inspect \
+            --format '{{.RestartCount}}' "$ID")
+
+          echo "Worker running: $RUNNING"
+          echo "Worker restarts: $RESTARTS"
+
+          if [ "$RUNNING" != "true" ] || [ "$RESTARTS" -ne 0 ]; then
+            echo "Worker startup test FAILED"
+            exit 1
+          fi
+
+          echo "Worker startup test PASSED"
+
+      - name: Show logs
+        if: always()
+        run: |
+          docker compose ps
+          docker compose logs --tail=100 api worker
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v --remove-orphans
