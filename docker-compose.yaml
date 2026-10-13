@@ -81,12 +81,21 @@ services:
     restart: always
 
   redis:
+    redis:
     image: redis:alpine
-    ports:
-      - "6379:6379"
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$$REDIS_PASSWORD"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    expose:
+      - "6379"
     restart: always
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        - CMD-SHELL
+        - redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG
       interval: 5s
       timeout: 5s
       retries: 5
