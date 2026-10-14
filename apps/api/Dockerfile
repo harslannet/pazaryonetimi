@@ -79,6 +79,6 @@ ENV NODE_PATH=/app/node_modules:/app/apps/api/node_modules
 EXPOSE 3001
 
 # Start the application with an automatic database sync and seeding
-CMD ["sh", "-c", "cd packages/database && ../../node_modules/.bin/prisma db push --skip-generate --accept-data-loss && mkdir -p ../../node_modules/.prisma/client && cp -r ./generated/client/. ../../node_modules/.prisma/client/ && npm run db:seed && cd ../../apps/api && node dist/apps/api/src/main.js"]
+CMD ["sh", "-c", "cd packages/database && mkdir -p ../../node_modules/.prisma/client && cp -r ./generated/client/. ../../node_modules/.prisma/client/ && cd ../../apps/api && exec node dist/apps/api/src/main.js"]
 
 
