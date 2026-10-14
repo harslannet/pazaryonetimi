@@ -9,6 +9,7 @@ on:
 env:
   NODE_VERSION: '22'
   PRISMA_CLIENT_ENGINE_TYPE: library
+  PUPPETEER_SKIP_DOWNLOAD: 'true'
 
 jobs:
   lint-and-build:

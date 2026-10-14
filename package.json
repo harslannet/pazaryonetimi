@@ -21,6 +21,7 @@
     "devDependencies": {
         "@prisma/config": "6.4.1",
         "char-regex": "^2.0.2",
+        "napi-postinstall": "^0.3.4",
         "turbo": "latest"
     },
     "overrides": {
