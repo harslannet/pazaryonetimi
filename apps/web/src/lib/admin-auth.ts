@@ -26,11 +26,19 @@ export async function requirePlatformAdmin(): Promise<
   }
 
   const user = session.user as PlatformAdminSession;
-  const accessToken = (session as { accessToken?: string } | null)?.accessToken;
+  const accessToken = (session.user as PlatformAdminSession & { accessToken?: string }).accessToken;
 
   if (!isPlatformAdmin(user)) {
     return {
       error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
+      user: null,
+      accessToken: null,
+    };
+  }
+
+  if (!accessToken) {
+    return {
+      error: NextResponse.json({ error: 'Admin API oturumu doğrulanamadı' }, { status: 401 }),
       user: null,
       accessToken: null,
     };

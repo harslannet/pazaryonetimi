@@ -1,6 +1,5 @@
 /**
- * Platform admin = SUPERADMIN veya tenant'sız ADMIN.
- * Tenant sahibi (tenantId'li ADMIN) platform paneline erişemez.
+ * Platform yönetimi yalnızca SUPERADMIN hesabına açıktır.
  */
 export type PlatformAdminUser = {
   type?: string | null;
@@ -9,8 +8,7 @@ export type PlatformAdminUser = {
 
 export function isPlatformAdmin(user: PlatformAdminUser | null | undefined): boolean {
   if (!user?.type) return false;
-  if (user.type === 'SUPERADMIN' || user.type === 'ADMIN') return true;
-  return false;
+  return user.type === 'SUPERADMIN';
 }
 
 export function isTenantOwner(user: PlatformAdminUser | null | undefined): boolean {

@@ -19,7 +19,7 @@ async function proxyTenantById(req: NextRequest, id: string) {
         method: req.method,
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-id': authResult.user.id,
+          Authorization: `Bearer ${authResult.accessToken}`,
         },
         body,
         cache: 'no-store',

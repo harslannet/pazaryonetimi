@@ -20,8 +20,7 @@ async function proxyToNest(req: NextRequest, context: RouteContext) {
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-admin-id': authResult.user.id,
-    ...(authResult.accessToken ? { Authorization: `Bearer ${authResult.accessToken}` } : {}),
+    Authorization: `Bearer ${authResult.accessToken}`,
   };
 
   let lastStatus = 502;

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isPlatformAdmin } from "@/lib/platform-admin";
 
 function getSessionPayload(sessionToken: string): Record<string, unknown> | null {
     try {
@@ -148,16 +147,9 @@ export default async function middleware(req: NextRequest) {
             return addSecurityHeaders(response);
         }
 
-        const payload = getSessionPayload(sessionToken);
-        if (payload && !isPlatformAdmin({
-            type: payload.type as string | undefined,
-            tenantId: (payload.tenantId as string | null | undefined) ?? null,
-        })) {
-            const unauthorizedUrl = new URL('/unauthorized', req.url);
-            unauthorizedUrl.searchParams.set('from', 'admin');
-            const response = NextResponse.redirect(unauthorizedUrl);
-            return addSecurityHeaders(response);
-        }
+        // This middleware only decodes session-cookie text and cannot verify its
+        // signature. The admin client reads the authenticated NextAuth session,
+        // and every admin API request is independently authorized by the API.
     }
 
     const isLocalHost = hostname?.startsWith('localhost') || hostname?.startsWith('127.0.0.1');

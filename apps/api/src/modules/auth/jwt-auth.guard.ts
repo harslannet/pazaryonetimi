@@ -19,11 +19,6 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       return true;
     }
 
-    const req = context.switchToHttp().getRequest();
-    if (req?.headers && req.headers['x-admin-id']) {
-      return true;
-    }
-
     return super.canActivate(context);
   }
 }

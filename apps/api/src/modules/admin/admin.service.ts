@@ -17,80 +17,6 @@ export class AdminService {
   constructor(private prisma: PrismaService) {}
 
   // ═══════════════════════════════════════════════════════════════════
-  // TENANT IMPERSONATION
-  // ═══════════════════════════════════════════════════════════════════
-
-  /**
-   * Tenant olarak oturum aç (impersonation)
-   */
-  async impersonateTenant(adminUserId: string, tenantId: string) {
-    const admin = await this.prisma.user.findUnique({
-      where: { id: adminUserId },
-      select: { type: true, email: true, tenantId: true },
-    });
-
-    const isPlatformAdmin =
-      admin?.type === 'SUPERADMIN' ||
-      (admin?.type === 'ADMIN' && !admin.tenantId);
-
-    if (!admin || !isPlatformAdmin) {
-      throw new ForbiddenException('Bu işlem için platform yöneticisi yetkisi gerekli');
-    }
-
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      include: { users: { take: 1 } },
-    });
-
-    if (!tenant) {
-      throw new NotFoundException('Tenant bulunamadı');
-    }
-
-    // Impersonation log
-    await this.prisma.activityLog.create({
-      data: {
-        tenantId,
-        action: 'admin.impersonate',
-        resource: 'tenant',
-        resourceId: tenantId,
-        details: {
-          adminEmail: admin.email,
-          tenantName: tenant.name,
-          timestamp: new Date().toISOString(),
-        },
-      },
-    });
-
-    return {
-      success: true,
-      tenant: {
-        id: tenant.id,
-        name: tenant.name,
-        slug: tenant.slug,
-        plan: tenant.plan,
-      },
-      impersonatedUser: tenant.users[0] || null,
-      token: `impersonate_${tenantId}_${Date.now()}`, // Gerçek uygulamada JWT token
-    };
-  }
-
-  /**
-   * Impersonation'dan çık
-   */
-  async exitImpersonation(adminUserId: string) {
-    await this.prisma.activityLog.create({
-      data: {
-        action: 'admin.exit_impersonation',
-        resource: 'admin',
-        resourceId: adminUserId,
-        details: { timestamp: new Date().toISOString() },
-      },
-    });
-
-    return { success: true };
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
   // FEATURE FLAGS
   // ═══════════════════════════════════════════════════════════════════
 
@@ -1033,24 +959,31 @@ export class AdminService {
       throw new ConflictException('Bu e-posta adresi zaten kullanımda');
     }
 
+    const validTypes = ['SUPERADMIN', 'ADMIN', 'USER'];
+    const userType = validTypes.includes(data.type?.toUpperCase() || '')
+      ? (data.type!.toUpperCase() as any)
+      : 'USER';
+
+    const requestedPassword = data.password?.trim();
+    if (userType === 'SUPERADMIN' && (!requestedPassword || requestedPassword.length < 16)) {
+      throw new BadRequestException(
+        'SUPERADMIN hesabı için en az 16 karakterli, açıkça belirtilmiş bir parola gerekli.',
+      );
+    }
+
     const rawPassword =
-      data.password && data.password.trim().length >= 6
-        ? data.password.trim()
+      requestedPassword && requestedPassword.length >= 6
+        ? requestedPassword
         : 'Pazar123!';
     const hashedPassword = await bcrypt.hash(rawPassword, 12);
 
-    let tenantId = data.tenantId;
-    if (!tenantId) {
+    let tenantId = userType === 'SUPERADMIN' ? undefined : data.tenantId;
+    if (userType !== 'SUPERADMIN' && !tenantId) {
       const defaultTenant = await this.prisma.tenant.findFirst({
         orderBy: { createdAt: 'asc' },
       });
       tenantId = defaultTenant?.id;
     }
-
-    const validTypes = ['SUPERADMIN', 'ADMIN', 'USER'];
-    const userType = validTypes.includes(data.type?.toUpperCase() || '')
-      ? (data.type!.toUpperCase() as any)
-      : 'USER';
 
     const user = await this.prisma.user.create({
       data: {
@@ -1108,16 +1041,31 @@ export class AdminService {
     if (!userExists) throw new NotFoundException('Kullanıcı bulunamadı');
 
     const updateData: any = {};
+    let resultingType = userExists.type;
     if (data.type) {
       const validTypes = ['SUPERADMIN', 'ADMIN', 'USER'];
       if (validTypes.includes(data.type.toUpperCase())) {
-        updateData.type = data.type.toUpperCase() as any;
+        resultingType = data.type.toUpperCase() as any;
+        updateData.type = resultingType;
       }
+    }
+    if (resultingType === 'SUPERADMIN') {
+      if (
+        userExists.type !== 'SUPERADMIN' &&
+        (!data.password || data.password.trim().length < 16)
+      ) {
+        throw new BadRequestException(
+          'SUPERADMIN yetkisi verirken en az 16 karakterli yeni bir parola gerekli.',
+        );
+      }
+      updateData.tenantId = null;
     }
     if (data.firstName !== undefined) updateData.firstName = data.firstName;
     if (data.lastName !== undefined) updateData.lastName = data.lastName;
     if (data.email) updateData.email = data.email.toLowerCase().trim();
-    if (data.tenantId !== undefined) updateData.tenantId = data.tenantId || null;
+    if (resultingType !== 'SUPERADMIN' && data.tenantId !== undefined) {
+      updateData.tenantId = data.tenantId || null;
+    }
     if (data.status) updateData.status = data.status;
     if (data.password && data.password.trim().length >= 6) {
       updateData.password = await bcrypt.hash(data.password.trim(), 12);

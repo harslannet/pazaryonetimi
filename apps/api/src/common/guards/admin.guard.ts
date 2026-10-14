@@ -5,16 +5,12 @@ import {
   ExecutionContext,
   UnauthorizedException,
   ForbiddenException,
-  SetMetadata,
 } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { PrismaService } from '../../database/prisma.service';
 
 type AdminRequest = Request & {
-  body?: {
-    adminUserId?: string;
-  };
+  user?: { id?: string };
   adminUser?: {
     id: string;
     email: string | null;
@@ -26,54 +22,40 @@ type AdminRequest = Request & {
 
 /**
  * Admin Auth Guard
- * Admin endpoint'lerine sadece SUPERADMIN ve ADMIN kullanıcılarının erişmesini sağlar.
+ * Admin endpoint'lerine yalnızca aktif SUPERADMIN kullanıcılarının erişmesini sağlar.
  *
  * Kullanım:
  *   @UseGuards(AdminGuard)
  *   @Controller('admin')
  *   export class AdminController {}
  *
- * Header'da x-admin-id veya Authorization token beklenir.
+ * Kimlik, global JWT/Passport guard tarafından doğrulanan request.user'dan alınır.
  */
 @Injectable()
 export class AdminGuard implements CanActivate {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly reflector: Reflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AdminRequest>();
 
-    // Public endpoint'leri atla
-    const isPublic = this.reflector.get<boolean>(
-      'isPublic',
-      context.getHandler(),
-    );
-    if (isPublic) return true;
-
-    // Admin ID header'dan, req.user'dan veya body'den alınır
-    const adminId =
-      request.headers['x-admin-id'] ||
-      (request as any).user?.id ||
-      request.body?.adminUserId ||
-      this.extractAdminIdFromToken(request);
-
+    // Never trust identity supplied through headers or request bodies.
+    const adminId = request.user?.id;
     if (!adminId) {
       throw new UnauthorizedException(
-        'Admin kimlik bilgisi eksik. x-admin-id header veya geçerli bir token gerekli.',
+        'Geçerli bir access token gerekli.',
       );
     }
 
-    const normalizedAdminId = Array.isArray(adminId) ? adminId[0] : adminId;
-
     const user = await this.prisma.user.findUnique({
-      where: { id: normalizedAdminId },
+      where: { id: adminId },
       select: {
         id: true,
         email: true,
         type: true,
         tenantId: true,
+        status: true,
         firstName: true,
         lastName: true,
       },
@@ -83,13 +65,9 @@ export class AdminGuard implements CanActivate {
       throw new UnauthorizedException('Geçersiz admin kullanıcısı');
     }
 
-    const isPlatformAdmin =
-      user.type === 'SUPERADMIN' ||
-      user.type === 'ADMIN';
-
-    if (!isPlatformAdmin) {
+    if (user.status !== 'active' || user.type !== 'SUPERADMIN') {
       throw new ForbiddenException(
-        'Bu işlem için platform yöneticisi yetkisi gerekli',
+        'Bu işlem için aktif SUPERADMIN yetkisi gerekli.',
       );
     }
 
@@ -97,23 +75,4 @@ export class AdminGuard implements CanActivate {
     request.adminUser = user;
     return true;
   }
-
-  private extractAdminIdFromToken(request: AdminRequest): string | null {
-    const authHeader = request.headers['authorization'];
-    if (!authHeader) return null;
-
-    const normalizedHeader = Array.isArray(authHeader)
-      ? authHeader[0]
-      : authHeader;
-
-    // Bearer token formatı: "Bearer <token>"
-    // Gerçek uygulamada JWT decode edilir
-    const token = normalizedHeader.replace('Bearer ', '');
-    if (token.startsWith('admin_')) {
-      return token.replace('admin_', '');
-    }
-    return null;
-  }
 }
-
-export const Public = () => SetMetadata('isPublic', true);

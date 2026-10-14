@@ -9,6 +9,7 @@ import {
   Param,
   Query,
   UseGuards,
+  NotImplementedException,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AdminGuard } from '../../common/guards/admin.guard';
@@ -27,16 +28,17 @@ export class AdminController {
   // ═══════════════════════════════════════════════════════════════════
 
   @Post('impersonate/:tenantId')
-  async impersonate(
-    @Param('tenantId') tenantId: string,
-    @Body('adminUserId') adminUserId: string,
-  ) {
-    return this.adminService.impersonateTenant(adminUserId, tenantId);
+  async impersonate() {
+    throw new NotImplementedException(
+      'Impersonation kapalı; güvenli ve denetlenebilir akış uygulanana kadar kullanılamaz.',
+    );
   }
 
   @Post('exit-impersonation')
-  async exitImpersonation(@Body('adminUserId') adminUserId: string) {
-    return this.adminService.exitImpersonation(adminUserId);
+  async exitImpersonation() {
+    throw new NotImplementedException(
+      'Impersonation kapalı; güvenli ve denetlenebilir akış uygulanana kadar kullanılamaz.',
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════

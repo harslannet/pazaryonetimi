@@ -26,6 +26,7 @@ export async function verifyCredentials(
   });
 
   if (!user?.password) return null;
+  if (user.status !== 'active') return null;
 
   const isValid = await bcrypt.compare(password, user.password);
   if (!isValid) return null;

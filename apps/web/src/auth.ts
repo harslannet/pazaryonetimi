@@ -131,32 +131,34 @@ export const { handlers, signIn, signOut, auth } = NextAuth(async () => {
         callbacks: {
             async signIn({ user, account, profile }) {
                 if (account?.provider !== 'credentials') {
-                    // Check if user has a tenantId, if not, assign default or create one
-                    if (user.id && !(user as any).tenantId) {
-                        const existingUser = await prisma.user.findUnique({
-                            where: { id: user.id },
-                            select: { tenantId: true }
-                        });
+                    if (!user.id) return false;
+                    const existingUser = await prisma.user.findUnique({
+                        where: { id: user.id },
+                        select: { tenantId: true, type: true, status: true }
+                    });
+                    if (!existingUser || existingUser.status !== 'active') return false;
+                    if (existingUser.type === 'SUPERADMIN') return false;
 
-                        if (!existingUser?.tenantId) {
-                            // Find the first available tenant or create a default one
-                            let tenant = await prisma.tenant.findFirst();
-                            if (!tenant) {
-                                tenant = await prisma.tenant.create({
-                                    data: {
-                                        name: 'Default Tenant',
-                                        plan: 'FREE'
-                                    }
-                                });
-                            }
-                            await prisma.user.update({
-                                where: { id: user.id },
-                                data: { tenantId: tenant.id }
+                    (user as any).type = existingUser.type;
+                    (user as any).tenantId = existingUser.tenantId;
+
+                    // Platform accounts must remain tenantless.
+                    if (existingUser.type !== 'SUPERADMIN' && !existingUser.tenantId) {
+                        // Find the first available tenant or create a default one
+                        let tenant = await prisma.tenant.findFirst();
+                        if (!tenant) {
+                            tenant = await prisma.tenant.create({
+                                data: {
+                                    name: 'Default Tenant',
+                                    plan: 'FREE'
+                                }
                             });
-                            (user as any).tenantId = tenant.id;
-                        } else {
-                            (user as any).tenantId = existingUser.tenantId;
                         }
+                        await prisma.user.update({
+                            where: { id: user.id },
+                            data: { tenantId: tenant.id }
+                        });
+                        (user as any).tenantId = tenant.id;
                     }
                 }
                 return true;
@@ -174,11 +176,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth(async () => {
                 if (session.user && !(session.user as any).tenantId) {
                     const user = await prisma.user.findUnique({
                         where: { id: session.user.id },
-                        select: { tenantId: true, type: true }
+                        select: { tenantId: true, type: true, status: true }
                     });
                     if (user) {
                         (session.user as any).tenantId = user.tenantId;
-                        (session.user as any).type = user.type;
+                        (session.user as any).type = user.status === 'active' ? user.type : 'INACTIVE';
+                    } else {
+                        (session.user as any).type = 'INACTIVE';
                     }
                 }
 
@@ -192,17 +196,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth(async () => {
                     token.isOnboarded = (user as any).isOnboarded;
                     token.accessToken = (user as any).accessToken;
                 }
-                if (!token.tenantId && token.sub) {
+                if (token.sub) {
                     try {
                         const dbUser = await prisma.user.findUnique({
                             where: { id: token.sub },
-                            select: { tenantId: true, type: true }
+                            select: { tenantId: true, type: true, status: true }
                         });
-                        if (dbUser?.tenantId) {
+                        if (dbUser && dbUser.status === 'active') {
                             token.tenantId = dbUser.tenantId;
                             token.type = dbUser.type;
+                        } else {
+                            token.type = 'INACTIVE';
+                            token.tenantId = null;
                         }
-                    } catch {}
+                    } catch {
+                        token.type = 'INACTIVE';
+                        token.tenantId = null;
+                    }
                 }
                 return token;
             },
@@ -213,7 +223,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth(async () => {
             },
         },
         session: { strategy: "jwt" },
-        secret: process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET || "pazaryonetimi_secret_session_key_32_characters_long_2026",
+        secret: process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET,
         trustHost: true,
     } as any
 })
