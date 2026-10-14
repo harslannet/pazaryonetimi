@@ -1,3 +1,4 @@
+
 import {
   Injectable,
   UnauthorizedException,
@@ -9,7 +10,7 @@ import { PrismaService } from '../../database/prisma.service';
 import * as bcrypt from 'bcryptjs';
 
 export interface JwtPayload {
-  sub: string; // userId
+  sub: string;
   email: string;
   tenantId: string;
   type: string; // SUPERADMIN | ADMIN | USER
@@ -38,8 +39,12 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async login(email: string, password: string): Promise<TokenResponse> {
+  async login(
+    email: string,
+    password: string,
+  ): Promise<TokenResponse> {
     const cleanEmail = email.toLowerCase().trim();
+
     this.logger.debug(`Login attempt for email: ${cleanEmail}`);
 
     const user = await this.prisma.user.findUnique({
@@ -52,12 +57,18 @@ export class AuthService {
         lastName: true,
         type: true,
         tenantId: true,
+        status: true,
       },
     });
 
     if (!user) {
       this.logger.warn(`Login failed: User not found for ${cleanEmail}`);
       throw new UnauthorizedException('Geçersiz e-posta veya şifre');
+    }
+
+    if (user.status !== 'active') {
+      this.logger.warn(`Login blocked: Inactive user ${cleanEmail}`);
+      throw new UnauthorizedException('Hesap aktif değil');
     }
 
     if (!user.password) {
@@ -67,7 +78,11 @@ export class AuthService {
       );
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    const isPasswordValid = await bcrypt.compare(
+      password,
+      user.password,
+    );
+
     if (!isPasswordValid) {
       this.logger.warn(`Login failed: Invalid password for ${cleanEmail}`);
       throw new UnauthorizedException('Geçersiz e-posta veya şifre');
@@ -76,6 +91,7 @@ export class AuthService {
     const tokens = await this.generateTokens(user);
 
     this.logger.log(`User logged in successfully: ${user.email}`);
+
     return tokens;
   }
 
@@ -86,8 +102,10 @@ export class AuthService {
     lastName?: string;
     company?: string;
   }): Promise<TokenResponse> {
+    const cleanEmail = data.email.toLowerCase().trim();
+
     const existing = await this.prisma.user.findUnique({
-      where: { email: data.email.toLowerCase().trim() },
+      where: { email: cleanEmail },
     });
 
     if (existing) {
@@ -96,10 +114,10 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(data.password, 12);
 
-    // Create a new tenant for each registered user (multi-tenant SaaS)
     const tenantName =
       data.company ||
-      `${data.firstName || data.email.split('@')[0]}'in Mağazası`;
+      `${data.firstName || cleanEmail.split('@')[0]}'in Mağazası`;
+
     const baseSlug = tenantName
       .toLowerCase()
       .replace(/[çÇ]/g, 'c')
@@ -113,7 +131,11 @@ export class AuthService {
       .substring(0, 60);
 
     let slug = baseSlug;
-    const slugExists = await this.prisma.tenant.findFirst({ where: { slug } });
+
+    const slugExists = await this.prisma.tenant.findFirst({
+      where: { slug },
+    });
+
     if (slugExists) {
       slug = `${baseSlug}-${Date.now().toString(36)}`;
     }
@@ -136,14 +158,19 @@ export class AuthService {
             tenantId: tenant.id,
             isSystem: true,
             permissions: {
-              create: [{ action: 'manage', resource: 'all' }],
+              create: [
+                {
+                  action: 'manage',
+                  resource: 'all',
+                },
+              ],
             },
           },
         });
 
-        const user = await tx.user.create({
+        return tx.user.create({
           data: {
-            email: data.email.toLowerCase().trim(),
+            email: cleanEmail,
             password: hashedPassword,
             firstName: data.firstName || null,
             lastName: data.lastName || null,
@@ -160,35 +187,34 @@ export class AuthService {
             tenantId: true,
           },
         });
-
-        return user;
       });
 
-      const tokens = await this.generateTokens({
-        id: result.id,
-        email: result.email,
-        firstName: result.firstName,
-        lastName: result.lastName,
-        type: result.type,
-        tenantId: result.tenantId,
-      });
+      const tokens = await this.generateTokens(result);
+
       this.logger.log(
         `User registered with new tenant: ${result.email} (tenant: ${slug})`,
       );
+
       return tokens;
     } catch (error) {
       this.logger.error(
-        `Registration failed for ${data.email}: ${error.message}`,
+        `Registration failed for ${cleanEmail}: ${error.message}`,
         error.stack,
       );
-      if (error instanceof ConflictException) throw error;
+
+      if (error instanceof ConflictException) {
+        throw error;
+      }
+
       throw new Error(
         `Kayıt işlemi sırasında bir hata oluştu: ${error.message}`,
       );
     }
   }
 
-  async refreshToken(refreshToken: string): Promise<TokenResponse> {
+  async refreshToken(
+    refreshToken: string,
+  ): Promise<TokenResponse> {
     try {
       const payload = this.jwtService.verify<
         JwtPayload & { tokenType: string }
@@ -207,6 +233,7 @@ export class AuthService {
           lastName: true,
           type: true,
           tenantId: true,
+          status: true,
         },
       });
 
@@ -214,15 +241,19 @@ export class AuthService {
         throw new UnauthorizedException('Kullanıcı bulunamadı');
       }
 
-      return this.generateTokens({
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        type: user.type,
-        tenantId: user.tenantId,
-      });
-    } catch {
+      if (user.status !== 'active') {
+        this.logger.warn(
+          `Refresh token blocked: Inactive user ${user.email}`,
+        );
+        throw new UnauthorizedException('Hesap aktif değil');
+      }
+
+      return this.generateTokens(user);
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+
       throw new UnauthorizedException(
         'Geçersiz veya süresi dolmuş refresh token',
       );
@@ -239,11 +270,19 @@ export class AuthService {
         lastName: true,
         type: true,
         tenantId: true,
+        status: true,
       },
     });
 
     if (!user) {
       throw new UnauthorizedException('Geçersiz token');
+    }
+
+    if (user.status !== 'active') {
+      this.logger.warn(
+        `Token validation blocked: Inactive user ${user.email}`,
+      );
+      throw new UnauthorizedException('Hesap aktif değil');
     }
 
     return user;
@@ -256,23 +295,41 @@ export class AuthService {
   ): Promise<void> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { password: true },
+      select: {
+        password: true,
+        status: true,
+      },
     });
 
-    if (!user?.password) {
+    if (!user) {
+      throw new UnauthorizedException('Kullanıcı bulunamadı');
+    }
+
+    if (user.status !== 'active') {
+      throw new UnauthorizedException('Hesap aktif değil');
+    }
+
+    if (!user.password) {
       throw new UnauthorizedException('Mevcut şifre bulunamadı');
     }
 
-    const isOldPasswordValid = await bcrypt.compare(oldPassword, user.password);
+    const isOldPasswordValid = await bcrypt.compare(
+      oldPassword,
+      user.password,
+    );
+
     if (!isOldPasswordValid) {
       throw new UnauthorizedException('Mevcut şifre yanlış');
     }
 
     if (newPassword.length < 8) {
-      throw new UnauthorizedException('Yeni şifre en az 8 karakter olmalıdır');
+      throw new UnauthorizedException(
+        'Yeni şifre en az 8 karakter olmalıdır',
+      );
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 12);
+
     await this.prisma.user.update({
       where: { id: userId },
       data: { password: hashedPassword },
@@ -296,16 +353,24 @@ export class AuthService {
       type: user.type,
     };
 
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '24h' });
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: '24h',
+    });
+
     const refreshToken = this.jwtService.sign(
-      { ...payload, tokenType: 'refresh' },
-      { expiresIn: '7d' },
+      {
+        ...payload,
+        tokenType: 'refresh',
+      },
+      {
+        expiresIn: '7d',
+      },
     );
 
     return {
       accessToken,
       refreshToken,
-      expiresIn: 86400, // 24h in seconds
+      expiresIn: 86400,
       user: {
         id: user.id,
         email: user.email,
